@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { temporal } from 'zundo';
 import { v4 as uuidv4 } from 'uuid';
 import {
   WorkflowNode,
@@ -14,6 +15,7 @@ import {
   ValidationError,
 } from '@/types/workflow';
 import { Node, Edge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react';
+import dagre from 'dagre';
 
 // Default node data factories
 export function createDefaultNodeData(type: NodeType): WorkflowNodeData {
@@ -61,6 +63,38 @@ export function createDefaultNodeData(type: NodeType): WorkflowNodeData {
   }
 }
 
+// Auto-layout function using dagre
+function getLayoutedElements(
+  nodes: Node<WorkflowNodeData>[],
+  edges: Edge[],
+  direction: 'LR' | 'TB' = 'LR'
+) {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 80, ranksep: 120 });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: 200, height: 100 });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  return nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - 100,
+        y: nodeWithPosition.y - 50,
+      },
+    };
+  });
+}
+
 interface WorkflowState {
   // Workflow data
   nodes: Node<WorkflowNodeData>[];
@@ -105,24 +139,86 @@ interface WorkflowState {
   exportWorkflow: () => string;
   importWorkflow: (json: string) => boolean;
   clearWorkflow: () => void;
+  
+  // Auto-layout
+  autoLayout: (direction?: 'LR' | 'TB') => void;
+  
+  // Templates
+  loadTemplate: (templateId: string) => void;
 }
 
-export const useWorkflowStore = create<WorkflowState>((set, get) => ({
-  // Initial state
-  nodes: [],
-  edges: [],
-  workflowName: 'Untitled Workflow',
-  workflowDescription: '',
-  selectedNodeId: null,
-  isPanelOpen: false,
-  isSandboxOpen: false,
-  simulationResult: null,
-  isSimulating: false,
-  validationErrors: [],
+// Workflow templates
+const workflowTemplates: Record<string, { name: string; nodes: Node<WorkflowNodeData>[]; edges: Edge[] }> = {
+  onboarding: {
+    name: 'Employee Onboarding',
+    nodes: [
+      { id: 'tpl-start', type: 'start', position: { x: 50, y: 200 }, data: { label: 'Start', type: 'start', title: 'Begin Onboarding', metadata: [] } as StartNodeData },
+      { id: 'tpl-task1', type: 'task', position: { x: 280, y: 200 }, data: { label: 'Task', type: 'task', title: 'Collect Documents', description: 'Gather required documents from new employee', assignee: 'HR Coordinator', dueDate: '', customFields: [] } as TaskNodeData },
+      { id: 'tpl-approval', type: 'approval', position: { x: 510, y: 200 }, data: { label: 'Approval', type: 'approval', title: 'Manager Approval', approverRole: 'Manager', autoApproveThreshold: 0 } as ApprovalNodeData },
+      { id: 'tpl-auto', type: 'automated', position: { x: 740, y: 200 }, data: { label: 'Automated', type: 'automated', title: 'Send Welcome Email', actionId: 'send_email', actionParams: { to: 'employee@company.com', subject: 'Welcome to the team!' } } as AutomatedStepNodeData },
+      { id: 'tpl-end', type: 'end', position: { x: 970, y: 200 }, data: { label: 'End', type: 'end', endMessage: 'Onboarding Complete', showSummary: true } as EndNodeData },
+    ],
+    edges: [
+      { id: 'tpl-e1', type: 'deletable', source: 'tpl-start', target: 'tpl-task1', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e2', type: 'deletable', source: 'tpl-task1', target: 'tpl-approval', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e3', type: 'deletable', source: 'tpl-approval', target: 'tpl-auto', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e4', type: 'deletable', source: 'tpl-auto', target: 'tpl-end', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+    ],
+  },
+  leaveApproval: {
+    name: 'Leave Approval',
+    nodes: [
+      { id: 'tpl-start', type: 'start', position: { x: 50, y: 200 }, data: { label: 'Start', type: 'start', title: 'Leave Request', metadata: [] } as StartNodeData },
+      { id: 'tpl-approval1', type: 'approval', position: { x: 280, y: 200 }, data: { label: 'Approval', type: 'approval', title: 'Manager Approval', approverRole: 'Manager', autoApproveThreshold: 3 } as ApprovalNodeData },
+      { id: 'tpl-approval2', type: 'approval', position: { x: 510, y: 200 }, data: { label: 'Approval', type: 'approval', title: 'HR Review', approverRole: 'HRBP', autoApproveThreshold: 0 } as ApprovalNodeData },
+      { id: 'tpl-auto', type: 'automated', position: { x: 740, y: 200 }, data: { label: 'Automated', type: 'automated', title: 'Update Calendar', actionId: 'schedule_meeting', actionParams: {} } as AutomatedStepNodeData },
+      { id: 'tpl-end', type: 'end', position: { x: 970, y: 200 }, data: { label: 'End', type: 'end', endMessage: 'Leave Approved', showSummary: true } as EndNodeData },
+    ],
+    edges: [
+      { id: 'tpl-e1', type: 'deletable', source: 'tpl-start', target: 'tpl-approval1', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e2', type: 'deletable', source: 'tpl-approval1', target: 'tpl-approval2', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e3', type: 'deletable', source: 'tpl-approval2', target: 'tpl-auto', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e4', type: 'deletable', source: 'tpl-auto', target: 'tpl-end', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+    ],
+  },
+  documentVerification: {
+    name: 'Document Verification',
+    nodes: [
+      { id: 'tpl-start', type: 'start', position: { x: 50, y: 200 }, data: { label: 'Start', type: 'start', title: 'Document Submitted', metadata: [] } as StartNodeData },
+      { id: 'tpl-task1', type: 'task', position: { x: 280, y: 200 }, data: { label: 'Task', type: 'task', title: 'Initial Review', description: 'Check document completeness', assignee: 'Document Specialist', dueDate: '', customFields: [] } as TaskNodeData },
+      { id: 'tpl-task2', type: 'task', position: { x: 510, y: 200 }, data: { label: 'Task', type: 'task', title: 'Verify Authenticity', description: 'Verify document authenticity', assignee: 'Compliance Officer', dueDate: '', customFields: [] } as TaskNodeData },
+      { id: 'tpl-auto', type: 'automated', position: { x: 740, y: 200 }, data: { label: 'Automated', type: 'automated', title: 'Archive Document', actionId: 'archive_record', actionParams: {} } as AutomatedStepNodeData },
+      { id: 'tpl-end', type: 'end', position: { x: 970, y: 200 }, data: { label: 'End', type: 'end', endMessage: 'Verification Complete', showSummary: true } as EndNodeData },
+    ],
+    edges: [
+      { id: 'tpl-e1', type: 'deletable', source: 'tpl-start', target: 'tpl-task1', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e2', type: 'deletable', source: 'tpl-task1', target: 'tpl-task2', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e3', type: 'deletable', source: 'tpl-task2', target: 'tpl-auto', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+      { id: 'tpl-e4', type: 'deletable', source: 'tpl-auto', target: 'tpl-end', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+    ],
+  },
+};
+
+export { workflowTemplates };
+
+export const useWorkflowStore = create<WorkflowState>()(
+  temporal(
+    (set, get) => ({
+      // Initial state
+      nodes: [],
+      edges: [],
+      workflowName: 'Untitled Workflow',
+      workflowDescription: '',
+      selectedNodeId: null,
+      isPanelOpen: false,
+      isSandboxOpen: false,
+      simulationResult: null,
+      isSimulating: false,
+      validationErrors: [],
   
-  // Node and edge management
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+      // Node and edge management
+      setNodes: (nodes) => set({ nodes }),
+      setEdges: (edges) => set({ edges }),
   
   onNodesChange: (changes) => {
     set((state) => ({
@@ -293,7 +389,59 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       validationErrors: [],
     });
   },
-}));
+  
+  // Auto-layout using dagre
+  autoLayout: (direction = 'LR') => {
+    const state = get();
+    if (state.nodes.length === 0) return;
+    
+    const layoutedNodes = getLayoutedElements(state.nodes, state.edges, direction);
+    set({ nodes: layoutedNodes });
+  },
+  
+  // Load workflow template
+  loadTemplate: (templateId) => {
+    const template = workflowTemplates[templateId];
+    if (!template) return;
+    
+    // Generate new IDs to avoid conflicts
+    const idMap = new Map<string, string>();
+    
+    const newNodes = template.nodes.map((node) => {
+      const newId = `node-${uuidv4()}`;
+      idMap.set(node.id, newId);
+      return { ...node, id: newId };
+    });
+    
+    const newEdges = template.edges.map((edge) => ({
+      ...edge,
+      id: `edge-${uuidv4()}`,
+      source: idMap.get(edge.source) || edge.source,
+      target: idMap.get(edge.target) || edge.target,
+    }));
+    
+    set({
+      nodes: newNodes,
+      edges: newEdges,
+      workflowName: template.name,
+      workflowDescription: `Template: ${template.name}`,
+      selectedNodeId: null,
+      isPanelOpen: false,
+      simulationResult: null,
+      validationErrors: [],
+    });
+  },
+    }),
+    {
+      // Only track nodes and edges for undo/redo
+      partialize: (state) => ({
+        nodes: state.nodes,
+        edges: state.edges,
+      }),
+      limit: 50, // Keep 50 history states
+    }
+  )
+);
 
 // Selector hooks for optimized re-renders
 export const useSelectedNode = () => {
@@ -301,4 +449,5 @@ export const useSelectedNode = () => {
   const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId);
   return nodes.find((n) => n.id === selectedNodeId);
 };
+
 

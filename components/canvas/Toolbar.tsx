@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useWorkflowStore } from '@/store/workflowStore';
+import { useWorkflowStore, workflowTemplates } from '@/store/workflowStore';
 import {
   Play,
   Download,
@@ -10,6 +10,11 @@ import {
   FileJson,
   Settings,
   X,
+  Undo2,
+  Redo2,
+  LayoutGrid,
+  FileStack,
+  ChevronDown,
 } from 'lucide-react';
 
 export function Toolbar() {
@@ -21,10 +26,20 @@ export function Toolbar() {
   const exportWorkflow = useWorkflowStore((state) => state.exportWorkflow);
   const importWorkflow = useWorkflowStore((state) => state.importWorkflow);
   const clearWorkflow = useWorkflowStore((state) => state.clearWorkflow);
+  const autoLayout = useWorkflowStore((state) => state.autoLayout);
+  const loadTemplate = useWorkflowStore((state) => state.loadTemplate);
   const nodes = useWorkflowStore((state) => state.nodes);
+  
+  // Undo/Redo from temporal store
+  const temporalStore = useWorkflowStore.temporal;
+  const handleUndo = () => temporalStore.getState().undo();
+  const handleRedo = () => temporalStore.getState().redo();
+  const canUndo = temporalStore.getState().pastStates.length > 0;
+  const canRedo = temporalStore.getState().futureStates.length > 0;
 
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [importJson, setImportJson] = useState('');
   const [importError, setImportError] = useState('');
 
@@ -60,7 +75,7 @@ export function Toolbar() {
 
   return (
     <>
-      <div className="h-14 px-4 flex items-center justify-between border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-lg">
+      <div className="h-14 px-4 flex items-center justify-between border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-lg relative z-50">
         {/* Left: Workflow Name */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -84,7 +99,82 @@ export function Toolbar() {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          {/* Undo/Redo */}
+          <button
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={!canRedo}
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
+          
+          <div className="w-px h-6 bg-slate-700 mx-1" />
+          
+          {/* Templates Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTemplates(!showTemplates)}
+              className="flex items-center gap-2 px-3 py-1.5 text-slate-300 hover:text-white hover:bg-slate-700 text-sm rounded-lg transition-all"
+            >
+              <FileStack className="w-4 h-4" />
+              <span className="hidden sm:inline">Templates</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            {showTemplates && (
+              <>
+                {/* Backdrop to close dropdown when clicking outside */}
+                <div 
+                  className="fixed inset-0 z-[99]" 
+                  onClick={() => setShowTemplates(false)}
+                />
+                <div className="absolute top-full right-0 mt-1 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-[100]">
+                  <div className="p-2 border-b border-slate-700">
+                    <p className="text-xs text-slate-400 font-medium">Load Template</p>
+                  </div>
+                  {Object.entries(workflowTemplates).map(([id, template]) => (
+                    <button
+                      key={id}
+                      onClick={() => {
+                        if (nodes.length > 0 && !confirm('This will replace current workflow. Continue?')) {
+                          setShowTemplates(false);
+                          return;
+                        }
+                        loadTemplate(id);
+                        setShowTemplates(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+                    >
+                      {template.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          
+          {/* Auto Layout */}
+          <button
+            onClick={() => autoLayout('LR')}
+            disabled={nodes.length < 2}
+            className="flex items-center gap-2 px-3 py-1.5 text-slate-300 hover:text-white hover:bg-slate-700 text-sm rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Auto-arrange nodes"
+          >
+            <LayoutGrid className="w-4 h-4" />
+            <span className="hidden sm:inline">Layout</span>
+          </button>
+          
+          <div className="w-px h-6 bg-slate-700 mx-1" />
+          
           <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-3 py-1.5 text-slate-300 hover:text-white hover:bg-slate-700 text-sm rounded-lg transition-all"
