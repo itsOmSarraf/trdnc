@@ -4,11 +4,16 @@ import { memo } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
 import { StartNodeData } from '@/types/workflow';
 import { useWorkflowStore } from '@/store/workflowStore';
-import { Play } from 'lucide-react';
+import { Play, AlertTriangle } from 'lucide-react';
 
 function StartNodeComponent({ id, data, selected }: NodeProps) {
   const nodeData = data as StartNodeData;
   const selectNode = useWorkflowStore((state) => state.selectNode);
+  const validationErrors = useWorkflowStore((state) => state.validationErrors);
+  
+  // Check if this node has validation errors
+  const nodeErrors = validationErrors.filter((e) => e.nodeId === id);
+  const hasErrors = nodeErrors.length > 0;
 
   return (
     <div
@@ -19,8 +24,19 @@ function StartNodeComponent({ id, data, selected }: NodeProps) {
         shadow-lg shadow-emerald-500/20
         transition-all duration-200 cursor-pointer
         ${selected ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-900 scale-105' : 'hover:scale-102'}
+        ${hasErrors && !selected ? 'ring-2 ring-rose-500/50' : ''}
       `}
     >
+      {/* Validation Error Badge */}
+      {hasErrors && (
+        <div 
+          className="absolute -top-2 -right-2 z-10 flex items-center gap-1 px-1.5 py-0.5 bg-rose-500 text-white text-xs font-bold rounded-full shadow-lg animate-pulse"
+          title={nodeErrors.map(e => e.message).join('\n')}
+        >
+          <AlertTriangle className="w-3 h-3" />
+        </div>
+      )}
+      
       {/* Node Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-white/20">
         <div className="p-1.5 bg-white/20 rounded-lg">

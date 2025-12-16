@@ -4,11 +4,18 @@ import { memo } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
 import { TaskNodeData } from '@/types/workflow';
 import { useWorkflowStore } from '@/store/workflowStore';
-import { ClipboardList, User, Calendar } from 'lucide-react';
+import { ClipboardList, User, Calendar, AlertTriangle } from 'lucide-react';
 
 function TaskNodeComponent({ id, data, selected }: NodeProps) {
   const nodeData = data as TaskNodeData;
   const selectNode = useWorkflowStore((state) => state.selectNode);
+  const validationErrors = useWorkflowStore((state) => state.validationErrors);
+  
+  // Check if this node has validation errors
+  const nodeErrors = validationErrors.filter((e) => e.nodeId === id);
+  const hasErrors = nodeErrors.length > 0;
+  const errorCount = nodeErrors.filter((e) => e.type === 'error').length;
+  const warningCount = nodeErrors.filter((e) => e.type === 'warning').length;
 
   return (
     <div
@@ -19,8 +26,20 @@ function TaskNodeComponent({ id, data, selected }: NodeProps) {
         shadow-lg shadow-blue-500/20
         transition-all duration-200 cursor-pointer
         ${selected ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-900 scale-105' : 'hover:scale-102'}
+        ${hasErrors && !selected ? 'ring-2 ring-rose-500/50' : ''}
       `}
     >
+      {/* Validation Error Badge */}
+      {hasErrors && (
+        <div 
+          className="absolute -top-2 -right-2 z-10 flex items-center gap-1 px-1.5 py-0.5 bg-rose-500 text-white text-xs font-bold rounded-full shadow-lg animate-pulse"
+          title={nodeErrors.map(e => e.message).join('\n')}
+        >
+          <AlertTriangle className="w-3 h-3" />
+          {errorCount > 0 && <span>{errorCount}</span>}
+          {warningCount > 0 && errorCount === 0 && <span>!</span>}
+        </div>
+      )}
       {/* Input Handle */}
       <Handle
         type="target"
