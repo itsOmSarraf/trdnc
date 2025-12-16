@@ -48,6 +48,19 @@ function getNodeTypeColor(nodeType: string) {
   }
 }
 
+function getRecoverySuggestion(nodeType: string): string {
+  switch (nodeType) {
+    case 'task':
+      return 'Check that the assignee exists in your system. Verify the task configuration and ensure all required fields are filled.';
+    case 'approval':
+      return 'Verify the approver role is correctly configured. Consider adding backup approvers or adjusting the auto-approve threshold.';
+    case 'automated':
+      return 'Check if the automation service is running. Verify API credentials and ensure the action parameters are correct.';
+    default:
+      return 'Review the node configuration and ensure all connections are properly set up. Try running validation first.';
+  }
+}
+
 export function SandboxPanel() {
   const isSandboxOpen = useWorkflowStore((state) => state.isSandboxOpen);
   const setIsSandboxOpen = useWorkflowStore((state) => state.setIsSandboxOpen);
@@ -252,34 +265,84 @@ export function SandboxPanel() {
                   <div className="space-y-2">
                     <h4 className="text-sm font-medium text-slate-300">Execution Log</h4>
                     <div className="space-y-1">
-                      {simulationResult.steps.map((step, index) => (
-                        <div
-                          key={index}
-                          className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700/50"
-                        >
-                          <div className="mt-0.5">{getStepIcon(step.status)}</div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-white truncate">
-                                {step.nodeName}
+                      {simulationResult.steps.map((step, index) => {
+                        const isFailed = step.status === 'failed';
+                        const isLastStep = index === simulationResult.steps.length - 1;
+                        
+                        return (
+                          <div
+                            key={index}
+                            className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
+                              isFailed
+                                ? 'bg-rose-500/15 border-rose-500/40 ring-1 ring-rose-500/20'
+                                : 'bg-slate-800/50 border-slate-700/50'
+                            }`}
+                          >
+                            {/* Step Number & Icon */}
+                            <div className="flex flex-col items-center gap-1">
+                              <span className={`text-xs font-mono ${isFailed ? 'text-rose-400' : 'text-slate-500'}`}>
+                                #{index + 1}
                               </span>
-                              <span
-                                className={`px-1.5 py-0.5 text-xs rounded border ${getNodeTypeColor(
-                                  step.nodeType
-                                )}`}
-                              >
-                                {step.nodeType}
-                              </span>
+                              <div className="mt-0.5">{getStepIcon(step.status)}</div>
                             </div>
-                            <p className="text-xs text-slate-400 mt-1">{step.message}</p>
-                            {step.duration && (
-                              <p className="text-xs text-slate-500 mt-1">
-                                Duration: {step.duration}ms
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-medium truncate ${isFailed ? 'text-rose-300' : 'text-white'}`}>
+                                  {step.nodeName}
+                                </span>
+                                <span
+                                  className={`px-1.5 py-0.5 text-xs rounded border ${getNodeTypeColor(
+                                    step.nodeType
+                                  )}`}
+                                >
+                                  {step.nodeType}
+                                </span>
+                                {isFailed && (
+                                  <span className="px-1.5 py-0.5 text-xs bg-rose-500/30 text-rose-300 rounded font-medium animate-pulse">
+                                    FAILED
+                                  </span>
+                                )}
+                              </div>
+                              
+                              {/* Message */}
+                              <p className={`text-xs mt-1 ${isFailed ? 'text-rose-300/90' : 'text-slate-400'}`}>
+                                {step.message}
                               </p>
-                            )}
+                              
+                              {/* Duration */}
+                              {step.duration && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Duration: {step.duration}ms
+                                </p>
+                              )}
+                              
+                              {/* Recovery suggestion for failed steps */}
+                              {isFailed && (
+                                <div className="mt-3 p-2.5 bg-slate-900/80 rounded-lg border border-slate-700/50">
+                                  <p className="text-xs font-medium text-amber-400 mb-1.5 flex items-center gap-1.5">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    Recovery Suggestion
+                                  </p>
+                                  <p className="text-xs text-slate-400">
+                                    {getRecoverySuggestion(step.nodeType)}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
                           </div>
+                        );
+                      })}
+                      
+                      {/* Show remaining nodes that weren't executed */}
+                      {!simulationResult.success && simulationResult.steps.length < nodes.length && (
+                        <div className="mt-4 p-3 bg-slate-800/30 rounded-lg border border-dashed border-slate-700">
+                          <p className="text-xs text-slate-500 flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5" />
+                            {nodes.length - simulationResult.steps.length} remaining step(s) were not executed due to failure
+                          </p>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </>
