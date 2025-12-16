@@ -8,9 +8,11 @@ export interface KeyValuePair {
 }
 
 // Base node data interface
+// Index signature makes it compatible with React Flow's Record<string, unknown>
 export interface BaseNodeData {
   label: string;
   type: NodeType;
+  [key: string]: unknown;
 }
 
 // Start Node Data
